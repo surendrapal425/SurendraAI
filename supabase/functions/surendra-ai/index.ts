@@ -1,6 +1,17 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY");
+
+if (!GROQ_API_KEY) {
+  throw new Error("GROQ_API_KEY is missing");
+}
+
+const GROQ_URL =
+  "https://api.groq.com/openai/v1/chat/completions";
+
+const MODEL = "llama-3.3-70b-versatile";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
