@@ -1,5 +1,9 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import {
+  extractMemoryItems,
+  saveMemoryItems,
+} from "./memory_update.ts";
 
 import { MEMORY_LIMIT } from "./config.ts";
 import { SYSTEM_PROMPT } from "./prompts.ts";
@@ -89,7 +93,17 @@ serve(async (req) => {
     GROQ_API_KEY,
     message,
   );
-  
+  const extractedMemories =
+  await extractMemoryItems(
+    GROQ_API_KEY,
+    message,
+  );
+
+await saveMemoryItems(
+  supabase,
+  user_id,
+  extractedMemories,
+);
   console.log("Extracted Profile:", extractedProfile);
 
 await saveUserProfile(
