@@ -1,9 +1,11 @@
 import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { askGroq } from "./groq.ts";
 
 export interface MemoryItem {
   role: string;
   message: string;
 }
+
 export async function saveMemoryItems(
   supabase: SupabaseClient,
   user_id: string,
@@ -39,7 +41,6 @@ export async function saveMemoryItems(
     }
   }
 }
-import { askGroq } from "./groq.ts";
 
 const MEMORY_PROMPT = `
 Extract only long-term user memories.
@@ -54,7 +55,19 @@ Example:
   }
 ]
 
+Remember ONLY:
+- User name
+- City
+- Language
+- Profession
+- Hobbies
+- Favorite food
+- Favorite color
+- Long-term goals
+
 Return [] if nothing should be remembered.
+
+Return ONLY JSON.
 `;
 
 export async function extractMemoryItems(
@@ -71,6 +84,7 @@ export async function extractMemoryItems(
       content: message,
     },
   ]);
+
   try {
     const memories = JSON.parse(reply);
 
@@ -78,10 +92,11 @@ export async function extractMemoryItems(
       return [];
     }
 
-    return memories.filter((item) =>
-      item &&
-      typeof item.role === "string" &&
-      typeof item.message === "string"
+    return memories.filter(
+      (item) =>
+        item &&
+        typeof item.role === "string" &&
+        typeof item.message === "string",
     );
   } catch {
     return [];
