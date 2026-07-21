@@ -1,16 +1,23 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY");
+import { MEMORY_LIMIT } from "./config.ts";
+import { SYSTEM_PROMPT } from "./prompts.ts";
 
-if (!GROQ_API_KEY) {
-  throw new Error("GROQ_API_KEY is missing");
-}
+import {
+  loadMemory,
+  saveMemory,
+  buildMemoryMessages,
+} from "./memory.ts";
 
-const GROQ_URL =
-  "https://api.groq.com/openai/v1/chat/completions";
+import { askGroq } from "./groq.ts";
+import { loadUserProfile } from "./profile.ts";
+import { loadSummary } from "./summary.ts";
+import { searchWeb } from "./tavily.ts";
 
-const MODEL = "llama-3.3-70b-versatile";
+const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY")!;
+const TAVILY_API_KEY =
+  Deno.env.get("TAVILY_API_KEY") ?? "";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -26,7 +33,18 @@ serve(async (req) => {
   }
 
   try {
-    const { message, user_id = "default" } = await req.json();
+    const body = await req.json();
+
+    const message =
+      typeof body.message === "string"
+        ? body.message.trim()
+        : "";
+
+    const user_id =
+      typeof body.user_id === "string" &&
+      body.user_id.trim()
+        ? body.user_id.trim()
+        : "default";
 
     if (!message) {
       return new Response(
@@ -47,64 +65,83 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
-    const { data: memory } = await supabase
-      .from("memory")
-      .select("role,message")
-      .eq("user_id", user_id)
-      .order("created_at", { ascending: true });
 
-    const messages = [
+    const memory = await loadMemory(
+      supabase,
+      user_id,
+    );
+
+    const profile = await loadUserProfile(
+      supabase,
+      user_id,
+    );
+
+    const summary = await loadSummary(
+      supabase,
+      user_id,
+    );
+        const webContext = await searchWeb(
+      TAVILY_API_KEY,
+      message,
+    );
+
+    const messages: {
+      role: string;
+      content: string;
+    }[] = [
       {
         role: "system",
-        content:
-          "You are SurendraAI, a helpful AI assistant. Reply in the user's language.",
-      },
-
-      ...(memory ?? []).map((m) => ({
-        role: m.role,
-        content: m.message,
-      })),
-
-      {
-        role: "user",
-        content: message,
+        content: SYSTEM_PROMPT,
       },
     ];
 
-    const groqResponse = await fetch(
-      "https://api.groq.com/openai/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${Deno.env.get("GROQ_API_KEY")}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "llama-3.3-70b-versatile",
-          messages,
-        }),
-      },
+    if (summary) {
+      messages.push({
+        role: "system",
+        content:
+          `Conversation Summary:\n${summary}`,
+      });
+    }
+
+    if (profile) {
+      messages.push({
+        role: "system",
+        content:
+          `User Profile:\n${JSON.stringify(profile)}`,
+      });
+    }
+
+    if (webContext) {
+      messages.push({
+        role: "system",
+        content:
+          `Web Search Results:\n${webContext}`,
+      });
+    }
+
+    messages.push(
+      ...buildMemoryMessages(
+        memory.slice(-MEMORY_LIMIT),
+      ),
     );
 
-    const groq = await groqResponse.json();
+    messages.push({
+      role: "user",
+      content: message,
+    });
 
-    const aiReply =
-      groq?.choices?.[0]?.message?.content ??
-      "Sorry, I couldn't generate a reply.";
-    await supabase.from("memory").insert([
-      {
-        user_id,
-        role: "user",
-        message,
-      },
-      {
-        user_id,
-        role: "assistant",
-        message: aiReply,
-      },
-    ]);
+    const aiReply = await askGroq(
+      GROQ_API_KEY,
+      messages,
+    );
 
-    return new Response(
+    await saveMemory(
+      supabase,
+      user_id,
+      message,
+      aiReply,
+    );
+        return new Response(
       JSON.stringify({
         reply: aiReply,
       }),
