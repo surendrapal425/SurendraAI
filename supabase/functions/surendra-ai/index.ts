@@ -12,6 +12,10 @@ import {
 
 import { askGroq } from "./groq.ts";
 import { loadUserProfile } from "./profile.ts";
+import {
+  extractUserProfile,
+  saveUserProfile,
+} from "./profile_update.ts";
 import { loadSummary } from "./summary.ts";
 import { searchWeb } from "./tavily.ts";
 
@@ -80,6 +84,22 @@ serve(async (req) => {
       supabase,
       user_id,
     );
+    const extractedProfile =
+  await extractUserProfile(
+    GROQ_API_KEY,
+    message,
+  );
+  
+  console.log("Extracted Profile:", extractedProfile);
+
+await saveUserProfile(
+  supabase,
+  {
+    user_id,
+    ...extractedProfile,
+  },
+);
+console.log("Profile saved");
         const webContext = await searchWeb(
       TAVILY_API_KEY,
       message,
